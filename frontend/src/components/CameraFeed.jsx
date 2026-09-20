@@ -14,13 +14,16 @@ import {
   Cpu,
   X,
   Check,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from 'lucide-react';
 import { soundFx } from '../utils/audio';
 import {
   UserMediaFrameSource,
   VideoFileFrameSource,
-  ESP32MjpegFrameSource
+  ESP32MjpegFrameSource,
+  WildlifeSampleFrameSource,
+  WILDLIFE_SAMPLE_SPECIES
 } from '../utils/frameSource';
 import { apiFetch } from '../utils/api';
 
@@ -44,9 +47,10 @@ export const CameraFeed = ({
   // Frame Source Abstraction Instance
   const frameSourceRef = useRef(null);
 
-  const [feedSourceType, setFeedSourceType] = useState(initialSourceType); // 'camera' | 'video' | 'esp32'
+  const [feedSourceType, setFeedSourceType] = useState(initialSourceType); // 'camera' | 'video' | 'esp32' | 'sample'
   const [videoFileName, setVideoFileName] = useState('');
   const [isVideoPaused, setIsVideoPaused] = useState(false);
+  const [selectedSampleSpecies, setSelectedSampleSpecies] = useState('elephant');
 
   // ESP32 Stream config (persisted in localStorage)
   const [esp32StreamUrl, setEsp32StreamUrl] = useState(() => {
@@ -249,18 +253,75 @@ export const CameraFeed = ({
     }
   }, [esp32StreamUrl]);
 
+  const initWildlifeSampleSource = useCallback(async (species = 'elephant') => {
+    setCameraError(null);
+    setStreamActive(false);
+
+    if (imgRef.current) {
+      imgRef.current.style.display = 'none';
+      try {
+        imgRef.current.removeAttribute('src');
+        imgRef.current.src = '';
+      } catch (_) {}
+    }
+
+    if (frameSourceRef.current) {
+      frameSourceRef.current.destroy();
+      frameSourceRef.current = null;
+    }
+
+    try {
+      const source = new WildlifeSampleFrameSource();
+      await source.init({
+        species,
+        imgElement: imgRef.current
+      });
+
+      frameSourceRef.current = source;
+      setFeedSourceType('sample');
+      setSelectedSampleSpecies(species);
+      setStreamActive(true);
+      setTorchAvailable(false);
+      setTorchOn(false);
+      if (imgRef.current) {
+        imgRef.current.style.display = 'block';
+      }
+      soundFx.playTapClick();
+    } catch (err) {
+      console.error('FrameSource wildlife sample error:', err);
+      setCameraError({
+        category: 'sample_error',
+        title: 'SAMPLE IMAGE ERROR',
+        guidance: 'Unable to load sample wildlife frame.',
+        message: err.message
+      });
+    }
+  }, []);
+
+  const handleSelectSpecies = async (species) => {
+    soundFx.playTapClick();
+    if (feedSourceType === 'sample' && frameSourceRef.current instanceof WildlifeSampleFrameSource) {
+      setSelectedSampleSpecies(species);
+      await frameSourceRef.current.setSpecies(species);
+    } else {
+      initWildlifeSampleSource(species);
+    }
+  };
+
   useEffect(() => {
     if (feedSourceType === 'camera') {
       initCameraSource();
     } else if (feedSourceType === 'esp32') {
       initEsp32Source(esp32StreamUrl);
+    } else if (feedSourceType === 'sample') {
+      initWildlifeSampleSource(selectedSampleSpecies);
     }
     return () => {
       if (frameSourceRef.current) {
         frameSourceRef.current.destroy();
       }
     };
-  }, [initCameraSource, facingMode, feedSourceType]);
+  }, [initCameraSource, initEsp32Source, initWildlifeSampleSource, facingMode, feedSourceType]);
 
   // Video File Selection through FrameSource
   const handleVideoFileSelect = async (e) => {
@@ -610,22 +671,23 @@ export const CameraFeed = ({
         autoPlay
         muted
         style={{
-          display: feedSourceType !== 'esp32' ? 'block' : 'none',
+          display: feedSourceType === 'camera' || feedSourceType === 'video' ? 'block' : 'none',
           opacity: streamActive && !cameraError ? 1 : 0,
           pointerEvents: streamActive && !cameraError ? 'auto' : 'none'
         }}
         loop={feedSourceType === 'video'}
       />
 
-      {/* HTML5 Image element (Used by ESP32MjpegFrameSource) */}
+      {/* HTML5 Image element (Used by ESP32MjpegFrameSource & WildlifeSampleFrameSource) */}
       <img
         ref={imgRef}
         className="camera-video"
         alt=""
         crossOrigin="anonymous"
         style={{
-          display: feedSourceType === 'esp32' && streamActive && !cameraError ? 'block' : 'none',
-          objectFit: 'cover'
+          display: (feedSourceType === 'esp32' || feedSourceType === 'sample') && streamActive && !cameraError ? 'block' : 'none',
+          objectFit: 'fill',
+          background: '#0a0a0c'
         }}
         onError={() => {
           if (feedSourceType === 'esp32') {
@@ -643,6 +705,14 @@ export const CameraFeed = ({
                 imgRef.current.src = '';
               } catch (_) {}
             }
+          } else if (feedSourceType === 'sample') {
+            setStreamActive(false);
+            setCameraError({
+              category: 'sample_error',
+              title: 'SAMPLE IMAGE OFFLINE',
+              guidance: 'Unable to load sample wildlife image.',
+              message: 'Failed to load sample image asset.'
+            });
           }
         }}
       />
@@ -659,7 +729,18 @@ export const CameraFeed = ({
 
       {/* Top HUD Badges (Feed Source Status) */}
       <div className="feed-source-indicator">
-        {feedSourceType === 'video' ? (
+        {feedSourceType === 'sample' ? (
+          <div className="source-pill sample-pill" style={{
+            background: 'rgba(255, 255, 255, 0.08)',
+            border: '1px solid rgba(255, 255, 255, 0.25)'
+          }}>
+            <Sparkles size={12} color="#00ffaa" />
+            <span className="source-name">WILDLIFE DEMO FEED: {selectedSampleSpecies.toUpperCase()}</span>
+            <span className="source-status" style={{ color: '#00ffaa', fontWeight: 700 }}>
+              {streamActive ? '[AI INFERENCE ACTIVE]' : '[CONNECTING]'}
+            </span>
+          </div>
+        ) : feedSourceType === 'video' ? (
           <div className="source-pill video-pill">
             <Film size={12} color="#ffffff" />
             <span className="source-name">VIDEO: {videoFileName || 'FILE'}</span>
@@ -694,6 +775,54 @@ export const CameraFeed = ({
         )}
       </div>
 
+      {/* Wildlife Quick Selector Strip (Top Right) */}
+      <div className="wildlife-selector-strip" style={{
+        position: 'absolute',
+        top: 14,
+        right: 14,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        zIndex: 22,
+        background: 'rgba(10, 10, 14, 0.85)',
+        backdropFilter: 'blur(10px)',
+        padding: '4px 8px',
+        borderRadius: '6px',
+        border: '1px solid rgba(255, 255, 255, 0.18)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.6)'
+      }}>
+        <span style={{ fontSize: '10px', fontFamily: 'var(--font-hud)', color: 'rgba(255, 255, 255, 0.75)', marginRight: 2, letterSpacing: '0.06em' }}>
+          MODEL SAMPLES:
+        </span>
+        {WILDLIFE_SAMPLE_SPECIES.map((spec) => {
+          const isCur = feedSourceType === 'sample' && selectedSampleSpecies === spec.id;
+          return (
+            <button
+              key={spec.id}
+              onClick={() => handleSelectSpecies(spec.id)}
+              style={{
+                background: isCur ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                border: isCur ? '1px solid #ffffff' : '1px solid rgba(255, 255, 255, 0.12)',
+                color: '#ffffff',
+                padding: '3px 7px',
+                borderRadius: 4,
+                fontSize: '11px',
+                fontFamily: 'var(--font-mono)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 3,
+                transition: 'all 0.15s ease'
+              }}
+              title={`Detect ${spec.label} using YOLO detector`}
+            >
+              <span>{spec.icon}</span>
+              <span style={{ fontWeight: isCur ? 700 : 400 }}>{spec.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Loading / Placeholder Screen */}
       {!streamActive && !cameraError && (
         <div className="camera-placeholder">
@@ -705,6 +834,13 @@ export const CameraFeed = ({
             Connecting frame source: {feedSourceType.toUpperCase()}...
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              className="btn-tactical-main"
+              style={{ width: 'auto', padding: '8px 14px', fontSize: '11px', background: 'rgba(255, 255, 255, 0.15)', borderColor: '#ffffff', color: '#ffffff' }}
+              onClick={() => initWildlifeSampleSource(selectedSampleSpecies)}
+            >
+              <Sparkles size={14} /> WILDLIFE AI SAMPLES
+            </button>
             <button
               className="btn-tactical-main"
               style={{ width: 'auto', padding: '8px 14px', fontSize: '11px' }}
@@ -842,6 +978,14 @@ export const CameraFeed = ({
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              className="btn-tactical-main"
+              style={{ width: 'auto', padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', background: 'rgba(255, 255, 255, 0.18)', borderColor: '#ffffff', color: '#ffffff' }}
+              onClick={() => initWildlifeSampleSource(selectedSampleSpecies)}
+            >
+              <Sparkles size={15} /> ACTIVATE WILDLIFE DEMO FEED
+            </button>
+
             {feedSourceType === 'esp32' && (
               <button
                 className="btn-tactical-main"
@@ -897,6 +1041,20 @@ export const CameraFeed = ({
       {/* Floating Action Controls */}
       <div style={{ position: 'absolute', right: 18, bottom: 105, display: 'flex', flexDirection: 'column', gap: 12, zIndex: 14 }}>
         <button
+          className={`btn-icon-tactical ${feedSourceType === 'sample' ? 'active' : ''}`}
+          onClick={() => {
+            if (feedSourceType === 'sample') {
+              handleSwitchToCamera();
+            } else {
+              initWildlifeSampleSource(selectedSampleSpecies);
+            }
+          }}
+          title={feedSourceType === 'sample' ? 'Switch to Camera' : 'Activate Wildlife Demo Samples'}
+        >
+          <Sparkles size={22} color={feedSourceType === 'sample' ? '#00ffaa' : '#ffffff'} />
+        </button>
+
+        <button
           className={`btn-icon-tactical ${feedSourceType === 'video' ? 'active' : ''}`}
           onClick={() => fileInputRef.current?.click()}
           title="Upload / Select Animal Video File"
@@ -911,6 +1069,16 @@ export const CameraFeed = ({
         >
           <Cpu size={22} />
         </button>
+
+        {feedSourceType === 'sample' && (
+          <button
+            className="btn-icon-tactical"
+            onClick={handleSwitchToCamera}
+            title="Switch back to Live Camera"
+          >
+            <Camera size={22} />
+          </button>
+        )}
 
         {feedSourceType === 'video' && (
           <>

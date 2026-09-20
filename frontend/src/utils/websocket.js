@@ -126,8 +126,14 @@ export class StreamWebSocket {
       return false;
     }
 
+    // Backpressure: do not flood socket if previous inference is still in flight (max 1.5s wait)
+    if (this.isFrameInFlight && Date.now() - (this.lastFrameSentTime || 0) < 1500) {
+      return false;
+    }
+
     try {
       this.isFrameInFlight = true;
+      this.lastFrameSentTime = Date.now();
       this.ws.send(blob);
       return true;
     } catch (e) {

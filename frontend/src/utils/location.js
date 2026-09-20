@@ -119,6 +119,52 @@ export function saveManualLocation(loc) {
 }
 
 /**
+ * Search locations via OpenStreetMap Nominatim forward geocoding.
+ */
+export async function searchLocations(query) {
+  if (!query || query.trim().length < 2) return [];
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query.trim())}&limit=5`;
+    const resp = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'SentryWing-Wildlife-Intelligence-Platform/2.0'
+      }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      return (data || []).map(item => {
+        const parts = item.display_name.split(',').map(s => s.trim());
+        const shortName = parts.length > 2 ? `${parts[0]}, ${parts[1]}` : parts[0];
+        return {
+          id: `search_${item.place_id}`,
+          name: item.display_name,
+          shortName,
+          lat: parseFloat(parseFloat(item.lat).toFixed(6)),
+          lng: parseFloat(parseFloat(item.lon).toFixed(6))
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('Geocode search failed:', err);
+  }
+  return [];
+}
+
+/**
+ * Curated Wildlife Reserves & Research Field Stations
+ */
+export const DEFAULT_PRESET_STATIONS = [
+  { id: 'res_corbett', name: 'Jim Corbett National Park, Uttarakhand', shortName: 'Corbett NP', lat: 29.5312, lng: 78.7744, region: 'North' },
+  { id: 'res_kaziranga', name: 'Kaziranga National Park, Assam', shortName: 'Kaziranga NP', lat: 26.5775, lng: 93.1711, region: 'East' },
+  { id: 'res_gir', name: 'Gir National Park & Wildlife Sanctuary, Gujarat', shortName: 'Gir Forest', lat: 21.1245, lng: 70.8242, region: 'West' },
+  { id: 'res_bandipur', name: 'Bandipur Tiger Reserve, Karnataka', shortName: 'Bandipur TR', lat: 11.6664, lng: 76.6291, region: 'South' },
+  { id: 'res_ranthambore', name: 'Ranthambore Tiger Reserve, Rajasthan', shortName: 'Ranthambore TR', lat: 26.0173, lng: 76.5026, region: 'North' },
+  { id: 'res_sundarbans', name: 'Sundarbans Biosphere Reserve, West Bengal', shortName: 'Sundarbans BR', lat: 21.9497, lng: 89.1833, region: 'East' },
+  { id: 'res_periyar', name: 'Periyar Tiger Reserve, Kerala', shortName: 'Periyar TR', lat: 9.4622, lng: 77.2368, region: 'South' }
+];
+
+/**
  * Delete a saved manual location.
  */
 export function deleteSavedManualLocation(id) {
@@ -131,3 +177,4 @@ export function deleteSavedManualLocation(id) {
     return [];
   }
 }
+

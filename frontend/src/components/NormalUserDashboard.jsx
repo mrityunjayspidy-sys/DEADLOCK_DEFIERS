@@ -28,17 +28,10 @@ import {
   Crosshair,
   Scale
 } from 'lucide-react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { soundFx } from '../utils/audio';
 import { useAuth } from '../context/AuthContext';
-import {
-  getRealTimeLocation,
-  getSavedManualLocations,
-  saveManualLocation,
-  deleteSavedManualLocation,
-  reverseGeocode
-} from '../utils/location';
+import { getRealTimeLocation } from '../utils/location';
+import LocationPickerModal from './LocationPickerModal';
 import { CameraFeed } from './CameraFeed';
 import { TargetReticle } from './TargetReticle';
 import { AttributeCard } from './AttributeCard';
@@ -70,18 +63,8 @@ export const NormalUserDashboard = ({
     accuracy: null
   });
 
-  // Manual Location Modal & Saved Presets
+  // Manual Location Modal State
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
-  const [manualName, setManualName] = useState('');
-  const [manualLat, setManualLat] = useState('28.6139');
-  const [manualLng, setManualLng] = useState('77.2090');
-  const [savedLocations, setSavedLocations] = useState([]);
-  const [saveToPresets, setSaveToPresets] = useState(true);
-
-  // Mini Leaflet Map Ref for manual pin dropping
-  const miniMapContainerRef = useRef(null);
-  const miniMapInstanceRef = useRef(null);
-  const miniMarkerRef = useRef(null);
 
   // =========================================================================
   // UNIFIED HISTORY STATE (Real User Detections Only)
@@ -152,7 +135,6 @@ export const NormalUserDashboard = ({
 
   useEffect(() => {
     fetchRealTimeGps();
-    setSavedLocations(getSavedManualLocations());
   }, [fetchRealTimeGps]);
 
   // Synchronize location and uploader session with backend live stream & feed publisher
@@ -199,113 +181,7 @@ export const NormalUserDashboard = ({
   // =========================================================================
   const handleOpenManualModal = () => {
     soundFx.playTapClick();
-    setManualLat(selectedLocation.lat?.toString() || '28.6139');
-    setManualLng(selectedLocation.lng?.toString() || '77.2090');
-    setManualName(selectedLocation.name || 'Manual Field Station');
     setIsManualModalOpen(true);
-  };
-
-  // Interactive Mini Leaflet Map Pin Setter
-  useEffect(() => {
-    if (!isManualModalOpen || !miniMapContainerRef.current) return;
-
-    const curLat = parseFloat(manualLat) || 28.6139;
-    const curLng = parseFloat(manualLng) || 77.2090;
-
-    if (!miniMapInstanceRef.current) {
-      const map = L.map(miniMapContainerRef.current).setView([curLat, curLng], 13);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CARTO',
-        maxZoom: 19
-      }).addTo(map);
-
-      // Custom marker
-      const markerIcon = L.divIcon({
-        className: 'manual-pin-icon',
-        html: '<div class="pin-dot"></div>',
-        iconSize: [16, 16],
-        iconAnchor: [8, 8]
-      });
-
-      const marker = L.marker([curLat, curLng], { icon: markerIcon }).addTo(map);
-      miniMarkerRef.current = marker;
-
-      // Click on map to set coordinates
-      map.on('click', async (e) => {
-        const { lat, lng } = e.latlng;
-        const newLat = parseFloat(lat.toFixed(6));
-        const newLng = parseFloat(lng.toFixed(6));
-        setManualLat(newLat.toString());
-        setManualLng(newLng.toString());
-        marker.setLatLng([newLat, newLng]);
-        soundFx.playTapClick();
-
-        try {
-          const resolved = await reverseGeocode(newLat, newLng);
-          if (resolved) setManualName(resolved);
-        } catch (err) {}
-      });
-
-      miniMapInstanceRef.current = map;
-    } else {
-      miniMapInstanceRef.current.setView([curLat, curLng]);
-      if (miniMarkerRef.current) miniMarkerRef.current.setLatLng([curLat, curLng]);
-    }
-
-    setTimeout(() => {
-      miniMapInstanceRef.current?.invalidateSize();
-    }, 200);
-
-    return () => {
-      if (miniMapInstanceRef.current) {
-        miniMapInstanceRef.current.remove();
-        miniMapInstanceRef.current = null;
-      }
-    };
-  }, [isManualModalOpen]);
-
-  const handleSaveManualLocation = (e) => {
-    e.preventDefault();
-    const lat = parseFloat(manualLat) || 28.6139;
-    const lng = parseFloat(manualLng) || 77.2090;
-    const name = manualName.trim() || `Manual Point (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
-
-    const newLoc = {
-      lat,
-      lng,
-      name,
-      isLive: false,
-      accuracy: null
-    };
-
-    setSelectedLocation(newLoc);
-
-    if (saveToPresets) {
-      const updated = saveManualLocation(newLoc);
-      setSavedLocations(updated);
-    }
-
-    soundFx.playLockAcquired();
-    setIsManualModalOpen(false);
-  };
-
-  const handleSelectSavedLocation = (loc) => {
-    setSelectedLocation({
-      lat: loc.lat,
-      lng: loc.lng,
-      name: loc.name,
-      isLive: false,
-      accuracy: null
-    });
-    soundFx.playTapClick();
-    setIsManualModalOpen(false);
-  };
-
-  const handleDeleteSaved = (id, e) => {
-    e.stopPropagation();
-    const updated = deleteSavedManualLocation(id);
-    setSavedLocations(updated);
-    soundFx.playTapClick();
   };
 
   // =========================================================================
@@ -1507,136 +1383,22 @@ export const NormalUserDashboard = ({
         )}
       </div>
 
-      {/* MANUAL LOCATION ADDING & MAP PIN MODAL */}
-      {isManualModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsManualModalOpen(false)}>
-          <div className="tactical-modal-box manual-location-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title-row">
-                <MapPin size={18} />
-                <h4>SET LOCATION MANUALLY & PIN DROP</h4>
-              </div>
-              <button className="btn-icon-close" onClick={() => setIsManualModalOpen(false)}>
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="manual-modal-body">
-              {/* Left Column: Interactive Leaflet Map for Pin Dropping */}
-              <div className="modal-map-col">
-                <div className="map-picker-banner">
-                  <Crosshair size={13} />
-                  <span>CLICK ANYWHERE ON MAP TO SET GPS COORDINATES</span>
-                </div>
-                <div ref={miniMapContainerRef} className="mini-picker-map" />
-              </div>
-
-              {/* Right Column: Coordinate Form & Presets */}
-              <div className="modal-form-col">
-                <form onSubmit={handleSaveManualLocation} className="manual-coords-form">
-                  <div className="input-field">
-                    <label><Compass size={12} /> Location / Area Name</label>
-                    <input
-                      type="text"
-                      value={manualName}
-                      onChange={(e) => setManualName(e.target.value)}
-                      placeholder="e.g. North Ridge Station, Outpost 4, River Camp"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-row-2col">
-                    <div className="input-field">
-                      <label>Latitude (°N)</label>
-                      <input
-                        type="number"
-                        step="0.000001"
-                        value={manualLat}
-                        onChange={(e) => setManualLat(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="input-field">
-                      <label>Longitude (°E)</label>
-                      <input
-                        type="number"
-                        step="0.000001"
-                        value={manualLng}
-                        onChange={(e) => setManualLng(e.target.value)}
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <label className="checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={saveToPresets}
-                      onChange={(e) => setSaveToPresets(e.target.checked)}
-                    />
-                    <span>Save to My Saved Locations</span>
-                  </label>
-
-                  <div className="modal-actions-bar">
-                    <button
-                      type="button"
-                      className="btn-use-live-gps"
-                      onClick={() => {
-                        fetchRealTimeGps(true);
-                        setIsManualModalOpen(false);
-                      }}
-                    >
-                      <Navigation size={13} />
-                      <span>USE CURRENT LIVE GPS</span>
-                    </button>
-                    <button type="submit" className="btn-primary-action">
-                      SET THIS LOCATION
-                    </button>
-                  </div>
-                </form>
-
-                {/* User's Saved Manual Locations */}
-                {savedLocations.length > 0 && (
-                  <div className="saved-presets-list-box">
-                    <h5>MY SAVED FIELD LOCATIONS ({savedLocations.length})</h5>
-                    <div className="saved-locations-scroll">
-                      {savedLocations.map((loc) => (
-                        <div
-                          key={loc.id}
-                          className="saved-location-item"
-                          onClick={() => handleSelectSavedLocation(loc)}
-                        >
-                          <div className="saved-loc-info">
-                            <strong>{loc.name}</strong>
-                            <small>{loc.lat}° N, {loc.lng}° E</small>
-                          </div>
-                          <div className="saved-loc-btns">
-                            <button
-                              type="button"
-                              className="btn-apply-loc"
-                              onClick={() => handleSelectSavedLocation(loc)}
-                            >
-                              APPLY
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-delete-saved"
-                              onClick={(e) => handleDeleteSaved(loc.id, e)}
-                              title="Delete location"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* CLEAN FIELD LOCATION & MAP PIN MODAL */}
+      <LocationPickerModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        currentLocation={selectedLocation}
+        onSelectLocation={(newLoc) => {
+          setSelectedLocation(newLoc);
+          soundFx.playLockAcquired();
+        }}
+        onUseLiveGps={() => {
+          fetchRealTimeGps(true);
+          setIsManualModalOpen(false);
+        }}
+        isGpsLoading={isGpsLoading}
+        soundFx={soundFx}
+      />
 
       {/* SIGHTING DETAIL DOSSIER MODAL */}
       {selectedEventModal && (

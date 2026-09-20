@@ -75,11 +75,10 @@ export const AdminDashboard = () => {
         zoomControl: true
       });
 
-      // CartoDB Dark Matter tiles for ultra-premium black & white aesthetic
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CARTO &copy; OpenStreetMap contributors',
-        subdomains: 'abcd',
-        maxZoom: 19
+      // High-resolution Esri World Dark Gray Base for tactical monochrome aesthetic (free, no API key watermark)
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; Esri &mdash; National Geographic, DeLorme, NAVTEQ',
+        maxZoom: 16
       }).addTo(map);
 
       mapInstanceRef.current = map;

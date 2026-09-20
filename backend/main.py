@@ -636,8 +636,8 @@ async def websocket_stream(
 
                 frame_h, frame_w = frame.shape[:2]
 
-                # STAGE 1: Detector
-                detections = run_detection(frame, config.CONFIDENCE_THRESHOLD)
+                # STAGE 1: Detector (non-blocking thread pool execution)
+                detections = await asyncio.to_thread(run_detection, frame, config.CONFIDENCE_THRESHOLD)
                 last_known_detections = detections
 
                 # TRACKER

@@ -301,19 +301,31 @@ function runNms(boxes, iouThreshold = 0.45) {
 /**
  * Executes the Real YOLO11s ONNX Model on an Image
  */
-async function runRealYoloDetection(imgElement, confThreshold, fileName) {
+export async function runRealYoloDetection(imgElement, confThreshold = 0.25, fileName = '') {
   const session = await getRealYoloModel();
   if (!session) return null;
 
-  // 1. Prepare 640x640 offscreen canvas
+  const imgW = imgElement.naturalWidth || imgElement.width || 640;
+  const imgH = imgElement.naturalHeight || imgElement.height || 640;
+
+  // 1. Calculate YOLO Letterbox scaling (maintains aspect ratio with gray 114 padding)
+  const scale = Math.min(640 / imgW, 640 / imgH);
+  const newW = Math.round(imgW * scale);
+  const newH = Math.round(imgH * scale);
+  const padX = (640 - newW) / 2;
+  const padY = (640 - newH) / 2;
+
+  // 2. Render to 640x640 offscreen canvas with YOLO standard letterbox background (114, 114, 114)
   const canvas = document.createElement('canvas');
   canvas.width = 640;
   canvas.height = 640;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(imgElement, 0, 0, 640, 640);
+  ctx.fillStyle = 'rgb(114, 114, 114)';
+  ctx.fillRect(0, 0, 640, 640);
+  ctx.drawImage(imgElement, 0, 0, imgW, imgH, padX, padY, newW, newH);
   const imgData = ctx.getImageData(0, 0, 640, 640).data;
 
-  // 2. Build Planar RGB Float32Array [1, 3, 640, 640]
+  // 3. Build Planar RGB Float32Array [1, 3, 640, 640] normalized [0, 1]
   const planeSize = 640 * 640;
   const floatData = new Float32Array(3 * planeSize);
   for (let i = 0; i < planeSize; i++) {
@@ -327,7 +339,7 @@ async function runRealYoloDetection(imgElement, confThreshold, fileName) {
   const feeds = {};
   feeds[inputName] = inputTensor;
 
-  // 3. Inference
+  // 4. Run Neural Model Inference
   const results = await session.run(feeds);
   const outputName = session.outputNames[0] || 'output0';
   const raw = results[outputName].data; // shape [1, 12, 8400]
@@ -337,8 +349,8 @@ async function runRealYoloDetection(imgElement, confThreshold, fileName) {
   const candidates = [];
   const nameLower = (fileName || '').toLowerCase();
 
-  // Effective threshold: use at least 0.35 to eliminate weak noise
-  const effectiveThreshold = Math.max(0.35, confThreshold);
+  // Confidence floor (accepts user threshold down to 0.20)
+  const effectiveThreshold = confThreshold ? Math.max(0.20, confThreshold) : 0.25;
 
   for (let i = 0; i < numAnchors; i++) {
     let maxScore = 0;
@@ -357,10 +369,17 @@ async function runRealYoloDetection(imgElement, confThreshold, fileName) {
       const w  = raw[2 * numAnchors + i];
       const h  = raw[3 * numAnchors + i];
 
-      const x1 = Math.max(0, (cx - w / 2) / 640);
-      const y1 = Math.max(0, (cy - h / 2) / 640);
-      const x2 = Math.min(1, (cx + w / 2) / 640);
-      const y2 = Math.min(1, (cy + h / 2) / 640);
+      // Bounding box in letterboxed 640x640 space
+      const x1_lb = cx - w / 2;
+      const y1_lb = cy - h / 2;
+      const x2_lb = cx + w / 2;
+      const y2_lb = cy + h / 2;
+
+      // Inverse letterbox transform: unpad and normalize to original image space [0, 1]
+      const x1 = Math.max(0, Math.min(1, (x1_lb - padX) / newW));
+      const y1 = Math.max(0, Math.min(1, (y1_lb - padY) / newH));
+      const x2 = Math.max(0, Math.min(1, (x2_lb - padX) / newW));
+      const y2 = Math.max(0, Math.min(1, (y2_lb - padY) / newH));
 
       let species = YOLO_CLASSES[maxClass];
       // Special case: if user uploaded a jaguar photo and detected as leopard/feline
@@ -378,7 +397,7 @@ async function runRealYoloDetection(imgElement, confThreshold, fileName) {
     }
   }
 
-  // 4. Apply Non-Maximum Suppression
+  // 5. Apply Non-Maximum Suppression
   return runNms(candidates, 0.45);
 }
 
@@ -637,13 +656,13 @@ export async function runEdgePhotoAnalysis(file, options = {}) {
                 dosage_per_kg: guide.mg_per_kg,
                 reversal_agent: guide.reversal,
                 notes: guide.notes,
-                confidence: 0.95
+                confidence: Math.min(0.98, Number((item.score * 0.96).toFixed(2)))
               };
 
               detections.push({
                 species: item.species,
                 class_name: item.species,
-                confidence: Math.min(0.99, Math.max(0.35, item.score)),
+                confidence: Math.min(0.99, Number(item.score.toFixed(3))),
                 bbox: [item.x1, item.y1, item.x2, item.y2],
                 attributes,
                 dosage,

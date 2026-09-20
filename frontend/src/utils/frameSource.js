@@ -556,12 +556,158 @@ export class VideoFileFrameSource extends FrameSource {
 
 
 /**
+ * Wildlife Sample Species List
+ */
+export const WILDLIFE_SAMPLE_SPECIES = [
+  { id: 'elephant', label: 'Elephant', icon: '🐘', file: '/samples/animals/elephant.jpg' },
+  { id: 'tiger', label: 'Tiger', icon: '🐅', file: '/samples/animals/tiger.jpg' },
+  { id: 'leopard', label: 'Leopard', icon: '🐆', file: '/samples/animals/leopard.jpg' },
+  { id: 'cheetah', label: 'Cheetah', icon: '🐆', file: '/samples/animals/cheetah.jpg' },
+  { id: 'lion', label: 'Lion', icon: '🦁', file: '/samples/animals/lion.jpg' },
+  { id: 'bear', label: 'Bear', icon: '🐻', file: '/samples/animals/bear.jpg' },
+  { id: 'hyena', label: 'Hyena', icon: '🐺', file: '/samples/animals/hyena.jpg' },
+  { id: 'fox', label: 'Fox', icon: '🦊', file: '/samples/animals/fox.jpg' }
+];
+
+/**
+ * Wildlife Sample Frame Source.
+ * Streams verified wildlife animal samples to the AI detector model.
+ */
+export class WildlifeSampleFrameSource extends FrameSource {
+  constructor() {
+    super();
+    this.imgElement = new Image();
+    this.imgElement.crossOrigin = 'anonymous';
+    this.currentSpecies = 'elephant';
+    this._active = false;
+    this.lastFrameTime = 0;
+    this.fps = 0;
+  }
+
+  async init({ species = 'elephant', imgElement = null } = {}) {
+    this.destroy();
+    this.currentSpecies = species;
+    if (imgElement) {
+      this.imgElement = imgElement;
+    } else if (!this.imgElement) {
+      this.imgElement = new Image();
+    }
+    this.imgElement.crossOrigin = 'anonymous';
+
+    const match = WILDLIFE_SAMPLE_SPECIES.find((s) => s.id === species) || WILDLIFE_SAMPLE_SPECIES[0];
+    const src = match.file;
+
+    await new Promise((resolve, reject) => {
+      this.imgElement.onload = () => {
+        this._active = true;
+        resolve();
+      };
+      this.imgElement.onerror = (err) => {
+        this._active = false;
+        reject(new Error(`Failed to load wildlife sample image: ${src}`));
+      };
+      this.imgElement.src = src;
+      if (this.imgElement.complete && this.imgElement.naturalWidth) {
+        this._active = true;
+        resolve();
+      }
+    });
+  }
+
+  async setSpecies(species) {
+    this.currentSpecies = species;
+    const match = WILDLIFE_SAMPLE_SPECIES.find((s) => s.id === species) || WILDLIFE_SAMPLE_SPECIES[0];
+    await new Promise((resolve, reject) => {
+      this.imgElement.onload = () => {
+        this._active = true;
+        resolve();
+      };
+      this.imgElement.onerror = () => reject(new Error(`Failed to load ${match.file}`));
+      this.imgElement.src = match.file;
+      if (this.imgElement.complete && this.imgElement.naturalWidth) {
+        this._active = true;
+        resolve();
+      }
+    });
+  }
+
+  async getNextFrame(targetCanvas = null) {
+    if (!this._active || !this.imgElement.complete || !this.imgElement.naturalWidth) {
+      return null;
+    }
+
+    const vw = this.imgElement.naturalWidth || 640;
+    const vh = this.imgElement.naturalHeight || 480;
+
+    const scale = Math.min(1.0, 640 / vw);
+    const targetW = Math.round(vw * scale);
+    const targetH = Math.round(vh * scale);
+
+    const canvas = targetCanvas || document.createElement('canvas');
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(this.imgElement, 0, 0, targetW, targetH);
+
+    const now = Date.now();
+    if (this.lastFrameTime > 0) {
+      this.fps = Math.round(1000 / Math.max(1, now - this.lastFrameTime));
+    }
+    this.lastFrameTime = now;
+
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.85);
+    });
+
+    return {
+      blob,
+      width: targetW,
+      height: targetH,
+      sourceElement: this.imgElement,
+      timestamp: now
+    };
+  }
+
+  getMediaElement() {
+    return this.imgElement;
+  }
+
+  getDimensions() {
+    return {
+      width: this.imgElement?.naturalWidth || 640,
+      height: this.imgElement?.naturalHeight || 480
+    };
+  }
+
+  isActive() {
+    return this._active;
+  }
+
+  getCapabilities() {
+    return {
+      type: 'wildlife_sample',
+      species: this.currentSpecies,
+      fps: this.fps
+    };
+  }
+
+  destroy() {
+    this._active = false;
+  }
+}
+
+/**
  * Factory helper to instantiate the requested FrameSource.
- * @param {'camera'|'esp32'|'video'} type
+ * @param {'camera'|'esp32'|'video'|'sample'} type
  * @returns {FrameSource}
  */
 export function createFrameSource(type = 'camera') {
   switch (type) {
+    case 'sample':
+      return new WildlifeSampleFrameSource();
     case 'esp32':
       return new ESP32MjpegFrameSource();
     case 'video':
@@ -571,3 +717,4 @@ export function createFrameSource(type = 'camera') {
       return new UserMediaFrameSource();
   }
 }
+
