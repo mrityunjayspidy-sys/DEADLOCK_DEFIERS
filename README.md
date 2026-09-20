@@ -1,4 +1,6 @@
-# 🎯 Real-Time Animal Detection & Target Locking System
+# DEADLOCK_DEFIERS — SentryWing Wildlife Intelligence & Target Locking System
+> **Autonomous Drone-and-Dock System for Non-Invasive Deterrence and Human-Approved Dart Response in Human–Wildlife Conflict**
+
 
 A full-stack, low-latency computer vision and target tracking application built with a **FastAPI** backend, **WebSockets**, **OpenCV**, and a mobile-first **React + Vite** Tactical HUD frontend.
 
