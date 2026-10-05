@@ -1,156 +1,149 @@
-# DEADLOCK_DEFIERS — SentryWing Wildlife Intelligence & Target Locking System
+# SentryWing — Deterrence-First Drone & Dock System for Human–Wildlife Conflict Response
+
 > **Autonomous Drone-and-Dock System for Non-Invasive Deterrence and Human-Approved Dart Response in Human–Wildlife Conflict**
+> Smart India Hackathon 2026 · Problem Statement SIH26218 · Team Deadlock Defiers
 
+**In one line:** fixed cameras detect an animal, a drone tries non-invasive sound deterrence first, and any dart is fired only after a licensed handler approves (the one exception is an animal entering a people-living area).
 
-A full-stack, low-latency computer vision and target tracking application built with a **FastAPI** backend, **WebSockets**, **OpenCV**, and a mobile-first **React + Vite** Tactical HUD frontend.
-
-Architected in two distinct phases:
-* **Phase 1 (Current)**: High-speed live video streaming from a smartphone's rear browser camera over WebSockets, two-stage AI inference, automated centroid/IoU target locking, and real-time directional telemetry HUD.
-* **Phase 2 (Hardware-Ready)**: Direct swap of the video source to an **ESP32-CAM MJPEG** stream, with decoupled pan/tilt servo direction commands dispatched directly to hardware gimbal actuators.
+> ⚠️ **Please read first.** The 3D renders in our presentation (dart-preparation dock, dual camera payload) are **concept visualizations**, not built hardware. This repository contains the **working software and camera-tracking prototype**. The status table below shows exactly what is built, what is planned for the demo, and what is future scope.
 
 ---
 
-## 🏗️ System Architecture
+## 1. Project status
+
+| Component | Status | Evidence |
+|---|---|---|
+| Live video streaming + WebSocket backend (FastAPI) | ✅ Built | `backend/` |
+| Two-stage AI pipeline (animal detector → attribute classifier) | ✅ Built <!-- FILL: confirm weights included or how to obtain --> | `backend/inference.py`, `notebooks/` |
+| Target locking and offset / direction telemetry | ✅ Built | `backend/` |
+| Tactical HUD dashboard (React) | ✅ Built | `frontend/` |
+| ESP32-CAM pan-tilt rig (internal-round build) | ✅ Built <!-- FILL: confirm --> | `hardware/`, `media/esp32_pan_tilt/` |
+| Pre-/post-dart health analysis | ✅ Validated on recorded videos <!-- FILL: confirm --> | `notebooks/`, `media/` |
+| Vet-approved dose lookup on dashboard | 🟡 Planned for demo <!-- FILL --> | `data/dose_table_schema.csv` (schema only) |
+| Human-approval flow (officer / vet) | 🟡 Planned for demo <!-- FILL --> | — |
+| Drone with camera, sound and toy-dart modules | 🟡 Planned for demo (if selected) | — |
+| Autonomous dart-preparation dock | 🔵 Concept render only (future scope) | deck slide 3 |
+| Dual (visible + thermal) camera payload | 🔵 Concept render only (future scope) | deck slide 3 |
+| Geofenced boundaries + autonomous override | 🔵 Future scope | — |
+
+✅ built and tested · 🟡 planned for the hackathon demo · 🔵 future scope
+
+---
+
+## 2. Demo
+
+<!-- FILL: add a short (30–60 s), steady, landscape demo clip (YouTube unlisted link or a GIF in /media) -->
+
+| Screenshot | What it shows |
+|---|---|
+| `media/screenshots/detection.png` | Correct species detection with confidence |
+| `media/screenshots/tracking_hud.png` | Target lock, offset and direction banner |
+| `media/esp32_pan_tilt/` | ESP32-CAM pan-tilt rig following a target |
+
+---
+
+## 3. How it works
 
 ```mermaid
 flowchart TD
     subgraph Frontend ["Frontend (React + Tactical HUD)"]
-        CAM["Phone Rear Camera (getUserMedia)"] -->|10-15 FPS JPEG| WS_TX["WebSocket Client"]
-        WS_RX["Telemetry Stream"] --> OVERLAY["Interactive Canvas (BBoxes & Reticle)"]
-        WS_RX --> HUD["Gimbal Compass & Direction Banner"]
-        WS_RX --> STAGE2_CARD["Bio-Inspector (Age + Health)"]
+        CAM["Camera (phone now, ESP32-CAM for hardware)"] -->|10-15 FPS JPEG| WS_TX["WebSocket Client"]
+        WS_RX["Telemetry Stream"] --> OVERLAY["Canvas (boxes & reticle)"]
+        WS_RX --> HUD["Direction banner"]
+        WS_RX --> STAGE2_CARD["Attribute card (age + health)"]
     end
-
-    subgraph Backend ["Backend (FastAPI Engine)"]
-        WS_EP["/ws/stream Endpoint"] --> DEC["OpenCV Frame Decoder"]
-        DEC --> S1["Stage 1: Animal Detector (ONNX / PyTorch / Stub)"]
-        S1 --> TRK["Target Tracker & Locking Engine"]
-        TRK -->|If Target Locked| CROP["Target BBox Cropper"]
-        CROP --> S2["Stage 2: Attribute Classifier (Age & Health)"]
-        TRK --> OFFSET["Offset & 8-Way Direction Derivation"]
-        OFFSET --> SERVO["Phase 2 Hardware Servo Calculation"]
+    subgraph Backend ["Backend (FastAPI)"]
+        WS_EP["/ws/stream"] --> DEC["OpenCV decoder"]
+        DEC --> S1["Stage 1: Animal detector"]
+        S1 --> TRK["Target tracker & lock"]
+        TRK --> CROP["Target crop"]
+        CROP --> S2["Stage 2: Attribute classifier"]
+        TRK --> OFFSET["Offset & 8-way direction"]
+        OFFSET --> SERVO["Pan/tilt angle calculation"]
     end
-
-    WS_TX <==>|Bi-directional WebSocket| WS_EP
-    SERVO -.->|Phase 2 Future| ESP32["ESP32-CAM Pan/Tilt Gimbal Servos"]
+    WS_TX <==>|WebSocket| WS_EP
+    SERVO -.->|to hardware| ESP32["ESP32-CAM pan/tilt servos"]
 ```
 
----
-
-## ⚡ Tech Stack
-
-* **Backend**: Python 3.10+, FastAPI, Starlette WebSockets, OpenCV (`cv2`), ONNX Runtime, PyTorch / Ultralytics YOLO, Pydantic Settings.
-* **Frontend**: React 19, Vite, Plain Modern CSS (Cyberpunk Tactical HUD design system), Lucide Icons, Web Audio API sound synthesis.
-* **Real-time Link**: Full-duplex WebSocket streaming binary JPEG frames and low-latency JSON telemetry.
-
----
-
-## 🚀 Quickstart Guide
-
-### 1. Backend Setup & Launch
-
-1. Open a terminal in `/backend`:
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
-2. Start the FastAPI server (listening on all network interfaces `0.0.0.0` for LAN access):
-   ```bash
-   python -m uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-   > 💡 The backend automatically logs your local network IP (e.g. `192.168.1.45:8000`).
-
-### 2. Frontend Setup & Launch
-
-1. Open a second terminal in `/frontend`:
-   ```bash
-   cd frontend
-   npm install
-   npm run dev -- --host
-   ```
-2. Vite will launch with **HTTPS enabled** (via `@vitejs/plugin-basic-ssl`) and display the local network URL:
-   ```
-     ➜  Local:   https://localhost:5173/
-     ➜  Network: https://192.168.1.45:5173/
-   ```
+**Safety design (matches the presentation):**
+1. Sound deterrence is tried first, on every detection.
+2. A licensed handler (forest officer / vet) approves before any dart action.
+3. Automatic override applies only when the animal enters a people-living area.
+4. The hackathon demo uses a **foam-model animal and a toy dart only**. No real drug or dart is used.
+5. Real vet-approved dose values are **not published** here. `data/dose_table_schema.csv` shows the structure with illustrative placeholder numbers.
 
 ---
 
-## 📱 Testing on a Mobile Phone (Wi-Fi LAN)
+## 4. Models
 
-Mobile browsers (**iOS Safari** and **Android Chrome**) strictly enforce security policies that require **HTTPS** (or `localhost`) to access camera hardware via `navigator.mediaDevices.getUserMedia`.
+| Model | Purpose | Data source | Status | Result |
+|---|---|---|---|---|
+| Model 1 | Animal type / species / attributes | <!-- FILL: e.g. Kaggle / Roboflow / Hugging Face + our images --> | <!-- FILL --> | <!-- FILL: held-out accuracy --> |
+| Model 2 | Pre-dart health analysis | Our stress/health media (Dataset 4) | <!-- FILL --> | <!-- FILL --> |
+| Model 3 | Target-zone (muscle area) identification | Annotated images (Dataset 2) | <!-- FILL --> | <!-- FILL --> |
+| Model 4 | Post-dart breath-rate analysis | Our chest/flank videos (Dataset 3) | <!-- FILL --> | <!-- FILL --> |
+| Model 5 | Negative class (non-target animals, people) | <!-- FILL --> | <!-- FILL --> | <!-- FILL --> |
 
-1. Connect your phone to the **same Wi-Fi network** as your computer.
-2. Open the browser on your phone and navigate to:
-   ```
-   https://<YOUR_COMPUTER_IP>:5173
-   ```
-   *(e.g., `https://192.168.1.45:5173`)*
-3. **Accept the Local SSL Certificate Warning**:
-   * On iOS Safari: Tap **"Show Details"** → **"visit this website"**.
-   * On Android Chrome: Tap **"Advanced"** → **"Proceed to 192.168.x.x (unsafe)"**.
-4. Grant camera permission when prompted. The rear camera will start streaming frames to the backend, displaying live detection boxes and tracking telemetry!
+**Simulation mode:** if no weights are present in `backend/models/`, the backend runs a **stub simulator** that generates synthetic animal trajectories so the pipeline can be tested end to end. The dashboard shows a **SIMULATION MODE** banner in this state. <!-- FILL: confirm banner exists, or add it -->
+
+**Known limitations (honest notes):**
+- <!-- FILL example: On an external test image, a tiger was labelled "cheetah" with 0.66 confidence. We are retraining on more data and adding a confidence threshold so uncertain detections are shown as "uncertain". -->
+- Weight and age are **approximate visual estimates**, not measurements. Final dosing in the full system comes from a vet-approved lookup by species and weight class.
+- The ESP32-CAM Wi-Fi stream can drop frames. <!-- FILL if true -->
 
 ---
 
-## 🧠 Two-Stage AI Pipeline & Drop-in Weights
+## 5. Hardware prototype (ESP32-CAM pan-tilt)
 
-The backend features swappable model loaders in `backend/inference.py`:
+<!-- FILL: 3–5 lines. Include the parts list (ESP32-CAM, servos, bracket), wiring photo, where the firmware lives, and what was tested. -->
 
-```
-backend/
-└── models/
-    ├── detector.onnx   # (Option A) Fast ONNX Runtime YOLOv8/v11
-    ├── detector.pt     # (Option B) PyTorch Ultralytics weights
-    ├── attribute.onnx  # Stage 2 Attribute Classifier
-    └── attribute.pt    # PyTorch Stage 2 Attribute Classifier
+---
+
+## 6. Quickstart
+
+### Backend
+```bash
+cd backend
+pip install -r requirements.txt
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### Stage 1: Animal Detector
-* **Input**: Full BGR video frame.
-* **Output**: Normalized bounding boxes `[x1, y1, x2, y2]`, class name, confidence score.
-* **Fallback Stub**: When no weights are present, the intelligent stub simulator generates smooth, realistic animal trajectories across frames for immediate end-to-end testing.
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev -- --host
+```
+Vite serves over HTTPS. Open the network URL on your phone (same Wi-Fi), accept the local certificate warning, and allow camera access.
 
-### Stage 2: Target Attribute Classifier
-* **Input**: Cropped bounding box of the currently locked target.
-* **Output**: Age estimate (`Adult ~3-5 yrs`, `Sub-Adult`, `Juvenile`, `Senior`), health condition (`Healthy / Active`, `Resting`, `Monitored`), confidence rating, and biological details.
-
-### Hot-Reloading
-Drop weights into `backend/models/` while the server is running and click **"RELOAD MODELS"** in the UI settings drawer or send `POST /api/models/reload`.
-
----
-
-## 🎯 Target Locking & Tracking Logic
-
-1. **Acquisition**: On first detection (or when the user taps on any animal on screen), the tracker locks onto that target.
-2. **Matching**: Every frame, the tracker calculates IoU and centroid Euclidean distance to track the target across motion.
-3. **Offset Normalization**: Calculates normalized offset `(dx, dy)` from the frame center:
-   * $dx \in [-1.0, +1.0]$: Negative = Target is Left, Positive = Target is Right.
-   * $dy \in [-1.0, +1.0]$: Negative = Target is Up/Top, Positive = Target is Down/Bottom.
-4. **8-Way Direction Derivation**: Derives discrete actuation command:
-   * `CENTERED` (within configurable deadband, default 8%)
-   * `UP`, `DOWN`, `LEFT`, `RIGHT`
-   * `UP_LEFT`, `UP_RIGHT`, `DOWN_LEFT`, `DOWN_RIGHT`
-5. **Lock-Loss Timeout**: If the target is obstructed or leaves the frame for $> 15$ consecutive frames (configurable), lock is dropped and state reverts to `SEARCHING`.
+### Model weights
+Place `detector.onnx` / `detector.pt` and `attribute.onnx` / `attribute.pt` in `backend/models/`, then click **RELOAD MODELS** or call `POST /api/models/reload`.
+<!-- FILL: link to weights (GitHub Release / Drive) if they are not in the repo -->
 
 ---
 
-## 🤖 Phase 2 Hardware Integration (ESP32-CAM & Servos)
+## 7. Roadmap (mirrors the presentation)
 
-Phase 1 has been architected to make the Phase 2 hardware transition effortless:
+- **Prototype scope (if selected):** working drone with camera, sound and toy-dart modules; species detection and dose display on a live dashboard; human-approved launch and lost-target search; health analysis shown on validation videos.
+- **Future scope:** autonomous dart-preparation dock and dual (visible + thermal) camera; multi-species response and live-animal field validation; Forest Department integration, geofenced override and wider rollout; regulatory approvals (drone, night-flight, wildlife permits).
 
-1. **Decoupled Direction & Servo Telemetry**:
-   Every frame returns a `hardware_command` object containing exact pan/tilt servo angles ($0^\circ$ to $180^\circ$):
-   ```json
-   {
-     "pan_angle": 104.5,
-     "tilt_angle": 82.0,
-     "pan_delta": 3.6,
-     "tilt_delta": -2.0,
-     "action": "TRACK_UP_RIGHT"
-   }
-   ```
-2. **Swapping Video Source**:
-   In Phase 2, replace the WebSocket frame receiver in `main.py` with an `asyncio` task reading from the ESP32-CAM MJPEG stream (`http://<ESP32_IP>:81/stream`).
-3. **Actuator Output**:
-   Dispatch the computed `hardware_command.pan_angle` / `tilt_angle` directly to the ESP32 over UDP/HTTP or UART serial to drive pan/tilt servos.
+---
+
+## 8. Repository layout
+
+```
+backend/     FastAPI server, inference, tracker
+bridge/      <!-- FILL: one line on what this does -->
+frontend/    React + Vite dashboard
+hardware/    ESP32-CAM pan-tilt firmware and wiring notes
+notebooks/   training and evaluation notebooks
+data/        dataset descriptions and dose-table schema (no real doses)
+media/       screenshots, demo clip, hardware photos
+docs/        architecture diagram, link to the presentation
+```
+
+## 9. Team, license, contact
+
+**Team Deadlock Defiers** — SIH 2026. <!-- FILL: names/roles if you want -->
+License: <!-- FILL: e.g. MIT -->
+Contact: <!-- FILL -->
